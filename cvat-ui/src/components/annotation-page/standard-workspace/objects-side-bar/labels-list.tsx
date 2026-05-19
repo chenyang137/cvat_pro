@@ -12,6 +12,7 @@ import { LabelType, ObjectType, ShapeType } from 'cvat-core-wrapper';
 import { CombinedState } from 'reducers';
 import { rememberObject, updateAnnotationsAsync } from 'actions/annotation-actions';
 import LabelItemContainer from 'containers/annotation-page/standard-workspace/objects-side-bar/label-item';
+import LabelShortcutsKeypad from 'components/annotation-page/standard-workspace/objects-side-bar/label-shortcuts-keypad';
 import GlobalHotKeys, { KeyMapItem } from 'utils/mousetrap-react';
 import Text from 'antd/lib/typography/Text';
 import { ShortcutScope } from 'utils/enums';
@@ -125,6 +126,7 @@ function LabelsListComponent(): JSX.Element {
     return (
         <div className='cvat-objects-sidebar-labels-list'>
             <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
+            {labels.length > 0 && <LabelShortcutsKeypad labels={labels} />}
             <div className='cvat-objects-sidebar-labels-list-header'>
                 <Text>{`数量：${labels.length}`}</Text>
             </div>

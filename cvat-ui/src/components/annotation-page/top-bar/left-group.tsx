@@ -4,15 +4,16 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import { Col } from 'antd/lib/grid';
-import Icon, { StopOutlined, CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
-import Modal from 'antd/lib/modal';
+import Icon, { StopOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import Button from 'antd/lib/button';
-import Text from 'antd/lib/typography/Text';
+import message from 'antd/lib/message';
 
 import { UndoIcon, RedoIcon } from 'icons';
-import { ActiveControl, ToolsBlockerState } from 'reducers';
+import { ActiveControl, ToolsBlockerState, CombinedState } from 'reducers';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
+import { switchShowingObjectsTextAlways } from 'actions/settings-actions';
 
 function translateAction(action: string): string {
     const map: Record<string, string> = {
@@ -88,6 +89,12 @@ const componentShortcuts = {
         sequences: ['tab'],
         scope: ShortcutScope.STANDARD_WORKSPACE,
     },
+    TOGGLE_SHOW_OBJECTS_TEXT_ALWAYS: {
+        name: '始终显示对象详情',
+        description: '切换是否始终在画布上显示对象文本信息',
+        sequences: ['u'],
+        scope: ShortcutScope.ANNOTATION_PAGE,
+    },
 };
 
 registerComponentShortcuts(componentShortcuts);
@@ -109,6 +116,11 @@ function LeftGroup(props: Props): JSX.Element {
         onFinishDraw,
         onSwitchToolsBlockerState,
     } = props;
+
+    const dispatch = useDispatch();
+    const showObjectsTextAlways = useSelector(
+        (state: CombinedState) => state.settings.workspace.showObjectsTextAlways,
+    );
 
     const includesDoneButton = finishDrawAvailable(activeControl);
 
@@ -132,23 +144,19 @@ function LeftGroup(props: Props): JSX.Element {
             event?.preventDefault();
             onSwitchToolsBlockerState();
         },
+        TOGGLE_SHOW_OBJECTS_TEXT_ALWAYS: (event: KeyboardEvent | undefined) => {
+            event?.preventDefault();
+            const newValue = !showObjectsTextAlways;
+            dispatch(switchShowingObjectsTextAlways(newValue));
+            message.destroy();
+            message.success(newValue ? '已开启始终显示对象详情' : '已关闭始终显示对象详情');
+        },
     };
 
     return (
         <>
             <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
-            { saving && (
-                <Modal
-                    open
-                    destroyOnClose
-                    className='cvat-saving-job-modal'
-                    closable={false}
-                    footer={[]}
-                >
-                    <Text>CVAT 正在保存您的标注，请稍候 </Text>
-                    <LoadingOutlined />
-                </Modal>
-            )}
+            {/* Auto-save modal hidden to avoid blocking annotation work */}
             <Col className='cvat-annotation-header-left-group'>
                 <AnnotationMenuComponent />
                 <SaveAnnotationsButton />

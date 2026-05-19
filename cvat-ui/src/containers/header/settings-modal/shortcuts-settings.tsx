@@ -1,43 +1,34 @@
+// Copyright (C) 2020-2022 Intel Corporation
 // Copyright (C) CVAT.ai Corporation
 //
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
-import { connect } from 'react-redux';
-
+import { useSelector, useDispatch } from 'react-redux';
 import { CombinedState } from 'reducers';
-
-import ShortcutsSettingsComponent from 'components/header/settings-modal/shortcut-settings';
-import { KeyMap } from 'utils/mousetrap-react';
 import { shortcutsActions } from 'actions/shortcuts-actions';
+import ShortcutsSettingsComponent from 'components/header/settings-modal/shortcut-settings';
 
-interface StateToProps {
-    keyMap: KeyMap;
-}
+function ShortcutsSettingsContainer(): JSX.Element {
+    const keyMap = useSelector((state: CombinedState) => state.shortcuts.keyMap);
+    const dispatch = useDispatch();
 
-interface DispatchToProps {
-    onKeySequenceUpdate(shortcutID: string, updatedSequence: string[]): void;
-}
-
-function mapStateToProps(state: CombinedState): StateToProps {
-    const {
-        shortcuts: { keyMap },
-    } = state;
-    return {
-        keyMap,
+    const onKeySequenceUpdate = (shortcutID: string, updatedSequence: string[]): void => {
+        dispatch(shortcutsActions.registerShortcuts({
+            ...keyMap,
+            [shortcutID]: {
+                ...keyMap[shortcutID],
+                sequences: updatedSequence,
+            },
+        }));
     };
+
+    return (
+        <ShortcutsSettingsComponent
+            keyMap={keyMap}
+            onKeySequenceUpdate={onKeySequenceUpdate}
+        />
+    );
 }
 
-function mapDispatchToProps(dispatch: any): DispatchToProps {
-    return {
-        onKeySequenceUpdate: (shortcutID: string, updatedSequence: string[]): void => {
-            dispatch(shortcutsActions.updateSequence(shortcutID, updatedSequence));
-        },
-    };
-}
-
-function ShortcutsSettingsContainer(props: StateToProps & DispatchToProps): JSX.Element {
-    return <ShortcutsSettingsComponent {...props} />;
-}
-
-export default connect(mapStateToProps, mapDispatchToProps)(ShortcutsSettingsContainer);
+export default ShortcutsSettingsContainer;
