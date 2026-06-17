@@ -3,21 +3,20 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useHistory } from 'react-router';
 import Card from 'antd/lib/card';
 import Descriptions from 'antd/lib/descriptions';
-import { LoadingOutlined, MoreOutlined } from '@ant-design/icons';
+import { LoadingOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
 
 import { Job, JobType } from 'cvat-core-wrapper';
-import { useCardHeightHOC, useContextMenuClick, useIsMounted } from 'utils/hooks';
+import { useCardHeightHOC, useIsMounted } from 'utils/hooks';
 import Preview from 'components/common/preview';
 import { CombinedState } from 'reducers';
-import JobActionsComponent from './actions-menu';
 
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
@@ -39,7 +38,7 @@ interface Props {
 
 function JobCardComponent(props: Readonly<Props>): JSX.Element {
     const {
-        job, selected, onClick, onApplyFilter,
+        job, selected, onClick,
     } = props;
 
     const deletes = useSelector((state: CombinedState) => state.jobs.activities.deletes);
@@ -47,7 +46,7 @@ function JobCardComponent(props: Readonly<Props>): JSX.Element {
 
     const history = useHistory();
     const height = useCardHeight();
-    const { itemRef, handleContextMenuClick, handleContextMenuCapture } = useContextMenuClick<HTMLDivElement>();
+    const itemRef = useRef<HTMLDivElement>(null);
     const isMounted = useIsMounted();
 
     const [issueSummary, setIssueSummary] = useState<{ resolved: number; unresolved: number } | null>(null);
@@ -142,7 +141,10 @@ function JobCardComponent(props: Readonly<Props>): JSX.Element {
             )}
             hoverable
             onClick={onClick}
-            onContextMenuCapture={handleContextMenuCapture}
+            onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+            }}
         >
             <Descriptions column={1} size='small'>
                 <Descriptions.Item label='阶段'>
@@ -168,23 +170,18 @@ function JobCardComponent(props: Readonly<Props>): JSX.Element {
                     </Descriptions.Item>
                 )}
             </Descriptions>
+            {/* 三个点菜单按钮已注释：禁止在作业列表卡片上对单个作业做操作
             <div
                 onClick={handleContextMenuClick}
                 className='cvat-job-card-more-button cvat-actions-menu-button'
             >
                 <MoreOutlined className='cvat-menu-icon' />
             </div>
+            */}
         </Card>
     );
 
-    return (
-        <JobActionsComponent
-            jobInstance={job}
-            dropdownTrigger={['contextMenu']}
-            triggerElement={card}
-            onApplyFilter={onApplyFilter}
-        />
-    );
+    return card;
 }
 
 export default React.memo(JobCardComponent);

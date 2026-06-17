@@ -18,7 +18,7 @@ import Icon from '@ant-design/icons';
 import { MenuProps } from 'antd/lib/menu';
 
 import { MainMenuIcon } from 'icons';
-import { Job, JobState } from 'cvat-core-wrapper';
+import { Job, JobStage, JobState } from 'cvat-core-wrapper';
 import { usePlugins } from 'utils/hooks';
 
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -28,8 +28,8 @@ import {
     finishCurrentJobAsync,
     removeAnnotationsAsync as removeAnnotationsAsyncAction,
 } from 'actions/annotation-actions';
-import { exportActions } from 'actions/export-actions';
-import { importActions } from 'actions/import-actions';
+// import { exportActions } from 'actions/export-actions';
+// import { importActions } from 'actions/import-actions';
 import { updateJobAsync } from 'actions/jobs-actions';
 
 export enum Actions {
@@ -56,16 +56,24 @@ function AnnotationMenuComponent(): JSX.Element {
         setJobState(jobInstance.state);
     }, [jobInstance.state]);
 
-    const exportDataset = useCallback(() => {
-        dispatch(exportActions.openExportDatasetModal(jobInstance));
-    }, [jobInstance]);
+    // const exportDataset = useCallback(() => {
+    //     dispatch(exportActions.openExportDatasetModal(jobInstance));
+    // }, [jobInstance]);
 
     const finishJob = useCallback(() => {
-        dispatch(finishCurrentJobAsync(() => {
+        dispatch(finishCurrentJobAsync((nextStage) => {
+            // nextStage 由 finishCurrentJobAsync 内部根据"点击时的 stage"显式计算并传出，
+            // 避免 React 闭包时序问题导致提示文案与实际 stage 不一致
+            let content = '您已将作业标记为已完成';
+            if (nextStage === JobStage.VALIDATION) {
+                content = '标注已完成，作业已流转到"审核"阶段（新建）';
+            } else if (nextStage === JobStage.ACCEPTANCE) {
+                content = '审核已完成，作业已流转到"验收"阶段（新建）';
+            }
             message.open({
-                duration: 1,
+                duration: 2,
                 type: 'success',
-                content: '您已将作业标记为已完成',
+                content,
                 className: 'cvat-annotation-job-finished-success',
             });
         }));
@@ -75,26 +83,53 @@ function AnnotationMenuComponent(): JSX.Element {
         history.push(`/tasks/${jobInstance.taskId}`);
     }, [jobInstance.taskId]);
 
-    const uploadAnnotations = useCallback(() => {
-        dispatch(importActions.openImportDatasetModal(jobInstance));
-    }, [jobInstance]);
+    // const uploadAnnotations = useCallback(() => {
+    //     dispatch(importActions.openImportDatasetModal(jobInstance));
+    // }, [jobInstance]);
 
     const changeState = useCallback((state: JobState) => {
-        dispatch(updateJobAsync(jobInstance, { state })).then(() => {
+        // 业务规则：
+        //  - 在「审核」或「验收」阶段把状态改为「已拒绝」时，
+        //    流转回上一个阶段（审核→标注，验收→审核），state 保持 REJECTED 不变。
+        const payload: { state: JobState; stage?: JobStage } = { state };
+        if (state === JobState.REJECTED) {
+            if (jobInstance.stage === JobStage.VALIDATION) {
+                payload.stage = JobStage.ANNOTATION;
+            } else if (jobInstance.stage === JobStage.ACCEPTANCE) {
+                payload.stage = JobStage.VALIDATION;
+            }
+        }
+        dispatch(updateJobAsync(jobInstance, payload)).then(() => {
             message.info('作业状态已更新', 2);
         });
     }, [jobInstance]);
 
     const changeJobState = useCallback((state: JobState) => () => {
+        const willRollback = state === JobState.REJECTED &&
+            (jobInstance.stage === JobStage.VALIDATION || jobInstance.stage === JobStage.ACCEPTANCE);
+        let confirmContent: React.ReactNode = `作业状态将切换为"${state}"`;
+        if (willRollback) {
+            const targetStage = jobInstance.stage === JobStage.VALIDATION ? '标注' : '审核';
+            confirmContent = (
+                <>
+                    <Text>当前为「{jobInstance.stage === JobStage.VALIDATION ? '审核' : '验收'}」阶段，</Text>
+                    <Text>
+                        将状态切换为「已拒绝」后，作业会回退到「
+                        {targetStage}
+                        」阶段，状态仍为「已拒绝」。
+                    </Text>
+                </>
+            );
+        }
         Modal.confirm({
             title: '确定要更新当前作业状态吗？',
-            content: `作业状态将切换为"${state}"`,
+            content: confirmContent,
             okText: '继续',
             cancelText: '取消',
             className: 'cvat-modal-content-change-job-state',
             onOk: () => changeState(state),
         });
-    }, [changeState]);
+    }, [changeState, jobInstance.stage]);
 
     const computeClassName = (menuItemState: string): string => {
         if (menuItemState === jobState) return 'cvat-submenu-current-job-state-item';
@@ -103,17 +138,17 @@ function AnnotationMenuComponent(): JSX.Element {
 
     const menuItems: [NonNullable<MenuProps['items']>[0], number][] = [];
 
-    menuItems.push([{
-        key: Actions.LOAD_JOB_ANNO,
-        label: '上传标注',
-        onClick: uploadAnnotations,
-    }, 10]);
+    // menuItems.push([{
+    //     key: Actions.LOAD_JOB_ANNO,
+    //     label: '上传标注',
+    //     onClick: uploadAnnotations,
+    // }, 10]);
 
-    menuItems.push([{
-        key: Actions.EXPORT_JOB_DATASET,
-        label: '导出作业数据集',
-        onClick: exportDataset,
-    }, 20]);
+    // menuItems.push([{
+    //     key: Actions.EXPORT_JOB_DATASET,
+    //     label: '导出作业数据集',
+    //     onClick: exportDataset,
+    // }, 20]);
 
     menuItems.push([{
         key: Actions.REMOVE_ANNOTATIONS,

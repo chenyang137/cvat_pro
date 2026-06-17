@@ -12,7 +12,7 @@ import {
 } from 'cvat-canvas-wrapper';
 import {
     getCore, MLModel, JobType, Job, QualityConflict,
-    ObjectState, ObjectType, ShapeType, JobState, JobValidationLayout,
+    ObjectState, ObjectType, ShapeType, JobStage, JobState, JobValidationLayout,
 } from 'cvat-core-wrapper';
 import logger, { EventScope } from 'cvat-logger';
 import { getCVATStore } from 'cvat-store';
@@ -29,6 +29,8 @@ import {
 } from 'reducers';
 import { switchToolsBlockerState } from './settings-actions';
 import { updateJobAsync } from './jobs-actions';
+// 引入 antd notification 用于更醒目的阻塞式提示
+import notification from 'antd/lib/notification';
 
 interface AnnotationsParameters {
     filters: object[];
@@ -1157,11 +1159,46 @@ export function saveAnnotationsAsync(): ThunkAction {
     };
 }
 
-export function finishCurrentJobAsync(onSuccess: () => void): ThunkAction {
+export function finishCurrentJobAsync(onSuccess: (nextStage: JobStage | null) => void): ThunkAction {
     return async (dispatch: ThunkDispatch, getState) => {
         const state = getState();
         const beforeCallbacks = state.plugins.callbacks.annotationPage.header.menu.beforeJobFinish;
+        // 注意：此处必须从 store 取最新的 jobInstance，避免闭包捕获到旧引用
         const { jobInstance } = receiveAnnotationsParameters();
+        const originalStage = jobInstance.stage;
+
+        // 在保存前先检查未解决问题，避免误提交
+        // GROUND_TRUTH 类型无 issue 概念，跳过检查
+        const isGroundTruth = jobInstance.type === JobType.GROUND_TRUTH;
+        if (!isGroundTruth) {
+            // 双重检查：
+            // 1) 优先信任 store 里的 issues（用户 UI 看到的就是这个）
+            // 2) 同时再调一次 jobInstance.issues() 拿到后端最新数据
+            // 任意一者存在未解决都视为有未解决问题
+            let unresolvedCount = 0;
+            const storeIssues: any[] = (state as any).review?.issues || [];
+            const storeUnresolved = storeIssues.filter((iss) => iss && iss.resolved !== true);
+            if (storeUnresolved.length > 0) {
+                unresolvedCount = storeUnresolved.length;
+            } else {
+                try {
+                    const issues = await jobInstance.issues();
+                    unresolvedCount = (issues || []).filter((iss) => iss && iss.resolved !== true).length;
+                } catch (e) {
+                    // 接口异常不应阻塞主流程，记录警告并继续
+                    console.warn('检查问题列表失败', e);
+                }
+            }
+            if (unresolvedCount > 0) {
+                // 使用 notification 而非 message，更醒目且不会 3 秒后自动消失
+                notification.error({
+                    message: '无法完成作业',
+                    description: `当前作业还有 ${unresolvedCount} 个未解决的问题，请先解决后再试。`,
+                    duration: 4.5,
+                });
+                return;
+            }
+        }
 
         await dispatch(saveAnnotationsAsync());
 
@@ -1172,11 +1209,31 @@ export function finishCurrentJobAsync(onSuccess: () => void): ThunkAction {
             }
         }
 
+        // 显式记录流转后的目标 stage，作为提示文案的可靠依据
+        let nextStage: JobStage | null = null;
         if (jobInstance.state !== JobState.COMPLETED) {
-            await dispatch(updateJobAsync(jobInstance, { state: JobState.COMPLETED }));
+            // 自动流转：标注完成 -> 审核(新建) ; 审核完成 -> 验收(新建)
+            // 验收阶段是最后一个阶段，不做流转
+            if (originalStage === JobStage.ANNOTATION) {
+                await dispatch(updateJobAsync(jobInstance, {
+                    stage: JobStage.VALIDATION,
+                    state: JobState.NEW,
+                }));
+                nextStage = JobStage.VALIDATION;
+            } else if (originalStage === JobStage.VALIDATION) {
+                await dispatch(updateJobAsync(jobInstance, {
+                    stage: JobStage.ACCEPTANCE,
+                    state: JobState.NEW,
+                }));
+                nextStage = JobStage.ACCEPTANCE;
+            } else {
+                // 验收阶段（ACCEPTANCE）保持原逻辑：标记为已完成
+                await dispatch(updateJobAsync(jobInstance, { state: JobState.COMPLETED }));
+                nextStage = null;
+            }
         }
 
-        onSuccess();
+        onSuccess(nextStage);
     };
 }
 
