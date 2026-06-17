@@ -16,6 +16,7 @@ import Text from 'antd/lib/typography/Text';
 import Icon from '@ant-design/icons';
 import {
     BorderOutlined,
+    CheckCircleOutlined, CloseCircleOutlined,
     LoadingOutlined, MoreOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons/lib/icons';
 import { DurationIcon, FramesIcon } from 'icons';
@@ -32,6 +33,72 @@ import { JobStageSelector, JobStateSelector } from './job-selectors';
 
 function formatDate(value: Dayjs): string {
     return value.format('MMM Do YYYY HH:mm');
+}
+
+interface IssueSummary {
+    issues_unsolved: number;
+    issues_resolved: number;
+}
+
+function IssueCountsRow({ jobInstance }: Readonly<{ jobInstance: Job }>): JSX.Element {
+    const [summary, setSummary] = useState<IssueSummary | null>(null);
+    const [error, setError] = useState<any>(null);
+    const isMounted = useIsMounted();
+
+    useEffect(() => {
+        setError(null);
+        setSummary(null);
+        jobInstance
+            .issues()
+            .then((issues: any[]) => {
+                if (isMounted()) {
+                    setSummary({
+                        issues_unsolved: issues.filter((issue) => !issue.resolved).length,
+                        issues_resolved: issues.filter((issue) => issue.resolved).length,
+                    });
+                }
+            })
+            .catch((_error: any) => {
+                if (isMounted()) {
+                    setError(_error);
+                }
+            });
+    }, [jobInstance.id]);
+
+    if (summary === null) {
+        if (error) {
+            return <Text type='secondary'>问题数：获取失败</Text>;
+        }
+        return (
+            <Text type='secondary'>
+                问题数：
+                <LoadingOutlined />
+            </Text>
+        );
+    }
+
+    return (
+        <>
+            <Row>
+                <Col>
+                    <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    <Text>已解决问题： </Text>
+                    <Text type='secondary' className='cvat-job-item-issues-resolved'>
+                        {summary.issues_resolved}
+                    </Text>
+                </Col>
+            </Row>
+            <Row>
+                <Col>
+                    <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                    <Text>未解决问题： </Text>
+                    <Text type='secondary' className='cvat-job-item-issues-unsolved'>
+                        {summary.issues_unsolved}
+                    </Text>
+                </Col>
+            </Row>
+        </>
+    );
 }
 
 interface Props {
@@ -268,6 +335,9 @@ function JobItem(props: Readonly<Props>): JSX.Element {
                                         </Text>
                                     </Col>
                                 </Row>
+                            )}
+                            {job.type !== JobType.GROUND_TRUTH && (
+                                <IssueCountsRow jobInstance={job} />
                             )}
                         </Col>
                     </Row>

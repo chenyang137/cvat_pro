@@ -12,7 +12,7 @@ import Button from 'antd/lib/button';
 import { MoreOutlined } from '@ant-design/icons';
 import Progress from 'antd/lib/progress';
 import Badge from 'antd/lib/badge';
-import { Task, RQStatus, Request } from 'cvat-core-wrapper';
+import { Task, RQStatus, Request, JobStage, JobState, getCore } from 'cvat-core-wrapper';
 import Preview from 'components/common/preview';
 import { ActiveInference, PluginComponent } from 'reducers';
 import StatusMessage from 'components/requests-page/request-status';
@@ -37,6 +37,53 @@ interface ImportingState {
     message: string;
     progress: number;
 }
+
+// 自定义分段进度条：已完成 / 审核中 / 验收中 / 标注中 各用不同颜色
+function MultiStageProgressBar(props: {
+    total: number;
+    completed: number;
+    validation: number;
+    acceptance: number;
+    annotation: number;
+}): JSX.Element {
+    const { total, completed, validation, acceptance, annotation } = props;
+    if (total <= 0) {
+        return <div className='cvat-task-item-multi-progress' />;
+    }
+    const segments = [
+        { value: completed, color: '#52c41a' }, // 已完成 - 绿色
+        { value: validation, color: '#faad14' }, // 审核中 - 橙色
+        { value: acceptance, color: '#13c2c2' }, // 验收中 - 青色
+        { value: annotation, color: '#1890ff' }, // 标注中 - 蓝色
+    ];
+    return (
+        <div
+            className='cvat-task-item-multi-progress'
+            style={{
+                display: 'flex',
+                width: '100%',
+                height: 8,
+                background: '#f5f5f5',
+                borderRadius: 4,
+                overflow: 'hidden',
+            }}
+        >
+            {segments.filter((seg) => seg.value > 0).map((seg) => (
+                <div
+                    key={seg.color}
+                    style={{
+                        width: `${(seg.value * 100) / total}%`,
+                        background: seg.color,
+                        transition: 'width 0.3s ease',
+                    }}
+                    title={`${seg.value} / ${total}`}
+                />
+            ))}
+        </div>
+    );
+}
+
+const core = getCore();
 
 function TaskItemComponent(props: TaskItemProps): JSX.Element {
     const {
@@ -112,6 +159,38 @@ function TaskItemComponent(props: TaskItemProps): JSX.Element {
         .filter((plugin) => plugin.data.shouldBeRendered(props, { importingState }))
         .map((plugin) => ({ component: plugin.component, weight: plugin.data.weight }));
 
+    const [acceptanceJobsCount, setAcceptanceJobsCount] = useState<number | null>(() => {
+        // 任务详情页的 taskInstance 已包含 jobs 字段，可以直接统计
+        const jobs: any[] | undefined = taskInstance.jobs;
+        if (Array.isArray(jobs) && jobs.length) {
+            return jobs.filter((j) => j.stage === JobStage.ACCEPTANCE && j.state !== JobState.COMPLETED).length;
+        }
+        return null;
+    });
+
+    useEffect(() => {
+        // 如果 jobs 字段已存在（任务详情页）则无需请求
+        if (Array.isArray(taskInstance.jobs) && taskInstance.jobs.length) {
+            return;
+        }
+        // 任务列表卡片默认不附带 jobs 详情，需要显式请求
+        let cancelled = false;
+        core.jobs.get({ taskID: taskInstance.id, pageSize: 1000 })
+            .then((jobs) => {
+                if (cancelled) return;
+                const count = jobs.filter((j: any) =>
+                    j.stage === JobStage.ACCEPTANCE && j.state !== JobState.COMPLETED,
+                ).length;
+                setAcceptanceJobsCount(count);
+            })
+            .catch(() => {
+                if (!cancelled) setAcceptanceJobsCount(0);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [taskInstance.id, taskInstance.jobs]);
+
     const renderProgress = (): JSX.Element => {
         if (importingState) {
             return (
@@ -140,39 +219,56 @@ function TaskItemComponent(props: TaskItemProps): JSX.Element {
         const numOfJobs = taskInstance.progress.totalJobs;
         const numOfCompleted = taskInstance.progress.completedJobs;
         const numOfValidation = taskInstance.progress.validationJobs;
-        const numOfAnnotation = taskInstance.progress.annotationJobs;
-        const jobsProgress = ((numOfCompleted + numOfValidation) * 100) / numOfJobs;
+        // numOfAnnotation 是后端算的 = total - completed - validation（也包含 acceptance 阶段）
+        // 我们用 acceptance 阶段单独展示，所以从 annotation 总量中扣掉 acceptance 部分
+        const numOfAcceptance = acceptanceJobsCount ?? 0;
+        const numOfAnnotation = Math.max(
+            taskInstance.progress.annotationJobs - numOfAcceptance,
+            0,
+        );
 
         return (
             <Col span={7}>
                 <Row>
                     <Col span={24} className='cvat-task-item-progress-wrapper'>
-                        <div>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '4px 12px',
+                                lineHeight: 1.6,
+                            }}
+                        >
                             {numOfCompleted > 0 && (
-                                <Text strong className='cvat-task-completed-progress'>
-                                    {`\u2022 ${numOfCompleted} 已完成 `}
+                                <Text strong className='cvat-task-completed-progress' style={{ color: '#52c41a' }}>
+                                    {`\u2022 ${numOfCompleted} 已完成`}
                                 </Text>
                             )}
                             {numOfValidation > 0 && (
-                                <Text strong className='cvat-task-validation-progress'>
-                                    {`\u2022 ${numOfValidation} 审核中 `}
+                                <Text strong className='cvat-task-validation-progress' style={{ color: '#faad14' }}>
+                                    {`\u2022 ${numOfValidation} 审核中`}
+                                </Text>
+                            )}
+                            {numOfAcceptance > 0 && (
+                                <Text strong className='cvat-task-acceptance-progress' style={{ color: '#13c2c2' }}>
+                                    {`\u2022 ${numOfAcceptance} 验收中`}
                                 </Text>
                             )}
                             {numOfAnnotation > 0 && (
-                                <Text strong className='cvat-task-annotation-progress'>
-                                    {`\u2022 ${numOfAnnotation} 标注中 `}
+                                <Text strong className='cvat-task-annotation-progress' style={{ color: '#1890ff' }}>
+                                    {`\u2022 ${numOfAnnotation} 标注中`}
                                 </Text>
                             )}
                             <Text strong type='secondary'>
                                 {`\u2022 ${numOfJobs} 共计`}
                             </Text>
                         </div>
-                        <Progress
-                            percent={jobsProgress}
-                            success={{ percent: (numOfCompleted * 100) / numOfJobs }}
-                            strokeColor='#1890FF'
-                            showInfo={false}
-                            size='small'
+                        <MultiStageProgressBar
+                            total={numOfJobs}
+                            completed={numOfCompleted}
+                            validation={numOfValidation}
+                            acceptance={numOfAcceptance}
+                            annotation={numOfAnnotation}
                         />
                     </Col>
                 </Row>
