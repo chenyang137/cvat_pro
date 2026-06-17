@@ -90,13 +90,12 @@ function AnnotationMenuComponent(): JSX.Element {
     const changeState = useCallback((state: JobState) => {
         // 业务规则：
         //  - 在「审核」或「验收」阶段把状态改为「已拒绝」时，
-        //    流转回上一个阶段（审核→标注，验收→审核），state 保持 REJECTED 不变。
+        //    流转回标注阶段（审核→标注，验收→标注），state 保持 REJECTED 不变。
         const payload: { state: JobState; stage?: JobStage } = { state };
         if (state === JobState.REJECTED) {
-            if (jobInstance.stage === JobStage.VALIDATION) {
+            if (jobInstance.stage === JobStage.VALIDATION ||
+                jobInstance.stage === JobStage.ACCEPTANCE) {
                 payload.stage = JobStage.ANNOTATION;
-            } else if (jobInstance.stage === JobStage.ACCEPTANCE) {
-                payload.stage = JobStage.VALIDATION;
             }
         }
         dispatch(updateJobAsync(jobInstance, payload)).then(() => {
@@ -109,14 +108,15 @@ function AnnotationMenuComponent(): JSX.Element {
             (jobInstance.stage === JobStage.VALIDATION || jobInstance.stage === JobStage.ACCEPTANCE);
         let confirmContent: React.ReactNode = `作业状态将切换为"${state}"`;
         if (willRollback) {
-            const targetStage = jobInstance.stage === JobStage.VALIDATION ? '标注' : '审核';
             confirmContent = (
                 <>
-                    <Text>当前为「{jobInstance.stage === JobStage.VALIDATION ? '审核' : '验收'}」阶段，</Text>
                     <Text>
-                        将状态切换为「已拒绝」后，作业会回退到「
-                        {targetStage}
-                        」阶段，状态仍为「已拒绝」。
+                        当前为「
+                        {jobInstance.stage === JobStage.VALIDATION ? '审核' : '验收'}
+                        」阶段，
+                    </Text>
+                    <Text>
+                        将状态切换为「已拒绝」后，作业会回退到「标注」阶段，状态仍为「已拒绝」。
                     </Text>
                 </>
             );
